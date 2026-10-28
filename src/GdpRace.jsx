@@ -1,15 +1,10 @@
 import React, {useMemo} from 'react';
-import {AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, Easing} from 'remotion';
-import data from './gdp.json';
+import {AbsoluteFill, useCurrentFrame, useVideoConfig} from 'remotion';
+import {COUNTRIES, LAYOUT, buildFrames, buildDuration} from './model.js';
 
 const FONT = '"Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif';
 
-const easeInOut = (t) =>
-  interpolate(t, [0, 1], [0, 1], {
-    easing: Easing.inOut(Easing.cubic),
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
+export {buildDuration};
 
 export const GdpRace = ({
   kicker = '世界银行 · 现价美元',
@@ -17,53 +12,17 @@ export const GdpRace = ({
   footer = '数据来源：世界银行 NY.GDP.MKTP.CD · 单位：万亿美元',
   accent = '#5ea8ff',
   rowHeight = 56,
-  barHeight = 38,
+  barHeight = Math.round(rowHeight * 0.68),
   framesPerYear = 12,
   holdFrames = 28,
-  barMaxWidth = 880,
   palette = {},
-  top = 212,
-  visible = 8,
 }) => {
   const frame = useCurrentFrame();
-  const {durationInFrames, width, height} = useVideoConfig();
+  const {durationInFrames} = useVideoConfig();
+  const {barX, barMaxWidth, top, visible, labelX, labelWidth} = LAYOUT;
 
-  const years = data.years;
-  const N = years.length;
-  const lastStart = (N - 1) * framesPerYear;
-
-  const frames = useMemo(() => {
-    const total = lastStart + holdFrames;
-    const perFrame = [];
-    for (let f = 0; f < total; f++) {
-      const idx = Math.min(Math.floor(f / framesPerYear), N - 2);
-      const u = f >= lastStart ? 1 : easeInOut((f - idx * framesPerYear) / framesPerYear);
-      const vals = data.countries.map((c) => ({
-        code: c.code,
-        name: c.name,
-        v: c.values[idx] + (c.values[idx + 1] - c.values[idx]) * u,
-      }));
-      const sorted = [...vals].sort((a, b) => b.v - a.v);
-      const rank = {};
-      sorted.forEach((it, i) => (rank[it.code] = i));
-      perFrame.push({idx, u, vals, rank});
-    }
-    const smooth = {};
-    data.countries.forEach((c) => (smooth[c.code] = perFrame[0].rank[c.code]));
-    perFrame.forEach((fr) => {
-      fr.rows = {};
-      data.countries.forEach((c) => {
-        smooth[c.code] += (fr.rank[c.code] - smooth[c.code]) * 0.4;
-        fr.rows[c.code] = smooth[c.code];
-      });
-    });
-    return perFrame;
-  }, [framesPerYear, holdFrames, lastStart, N]);
-
+  const frames = useMemo(() => buildFrames(framesPerYear, holdFrames), [framesPerYear, holdFrames]);
   const st = frames[Math.min(frame, frames.length - 1)];
-  const yearLabel = String(frame >= lastStart ? years[N - 1] : Math.round(years[st.idx] + st.u));
-  const maxV = Math.max(...st.vals.map((v) => v.v)) * 1.05;
-  const barX = 172;
 
   return (
     <AbsoluteFill
@@ -106,7 +65,7 @@ export const GdpRace = ({
           textShadow: `0 0 50px ${accent}66`,
         }}
       >
-        {yearLabel}
+        {st.yearLabel}
       </div>
 
       <div
@@ -132,11 +91,12 @@ export const GdpRace = ({
           WebkitMaskImage: 'linear-gradient(180deg, black 0%, black 92%, transparent 100%)',
         }}
       >
-        {data.countries.map((c) => {
-          const y = st.rows[c.code] * rowHeight;
+        {COUNTRIES.map((c) => {
+          const row = st.rows[c.code];
+          const y = row * rowHeight;
           const val = st.vals.find((v) => v.code === c.code).v;
-          const barWidth = Math.max(8, (val / maxV) * barMaxWidth);
-          const fade = Math.min(1, Math.max(0, visible + 0.3 - st.rows[c.code]));
+          const barWidth = Math.max(8, (val / st.maxV) * barMaxWidth);
+          const fade = Math.min(1, Math.max(0, visible + 0.3 - row));
           if (fade <= 0.001) return null;
           const color = palette[c.name] || c.color;
           return (
@@ -144,9 +104,9 @@ export const GdpRace = ({
               <div
                 style={{
                   position: 'absolute',
-                  left: 52,
+                  left: labelX,
                   top: 0,
-                  width: 104,
+                  width: labelWidth,
                   textAlign: 'right',
                   color: '#dbe6fb',
                   fontSize: 24,
@@ -194,7 +154,9 @@ export const GdpRace = ({
       <div style={{position: 'absolute', left: 52, bottom: 24, color: '#5c7392', fontSize: 15, letterSpacing: 1}}>
         {footer}
       </div>
-      <div style={{position: 'absolute', right: 52, bottom: 24, color: '#3f5470', fontSize: 15, letterSpacing: 1}}>
+      <div
+        style={{position: 'absolute', right: 52, bottom: 24, color: '#3f5470', fontSize: 15, letterSpacing: 1}}
+      >
         Data Video Studio
       </div>
       <div
@@ -207,10 +169,6 @@ export const GdpRace = ({
           background: `linear-gradient(90deg, ${accent}, #818cf8)`,
         }}
       />
-      <div style={{display: 'none'}}>{width}{height}</div>
     </AbsoluteFill>
   );
 };
-
-export const buildDuration = (framesPerYear = 12, holdFrames = 28) =>
-  (data.years.length - 1) * framesPerYear + holdFrames;

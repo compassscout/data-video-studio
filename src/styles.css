@@ -213,3 +213,34 @@ code {
 .scrub { flex: 1; accent-color: var(--accent); }
 
 .time { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+
+.progress {
+  height: 4px;
+  background: #0a1120;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress > div {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #818cf8);
+  transition: width 0.15s linear;
+}
+
+.status { font-size: 12px; margin: 0; text-align: center; color: var(--muted); line-height: 1.5; }
+.status.done { color: #34d399; }
+.status.error { color: #f87171; }
+
+.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 9px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ghost:hover { border-color: var(--accent); color: var(--text); }
+
+.primary[disabled] { opacity: 0.5; cursor: not-allowed; }

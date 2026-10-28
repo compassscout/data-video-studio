@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Player} from '@remotion/player';
 import {GdpRace, buildDuration} from './GdpRace.jsx';
+import {exportVideo, downloadBlob, isExportSupported} from './export.js';
 
 const PRESETS = {
   默认: {},
@@ -28,10 +29,14 @@ export default function App() {
   const [palette, setPalette] = useState(PRESETS['默认']);
   const [playing, setPlaying] = useState(true);
   const [frame, setFrame] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState({kind: 'idle', text: ''});
   const playerRef = useRef(null);
   const rafRef = useRef(0);
 
   const duration = useMemo(() => buildDuration(cfg.framesPerYear, 28), [cfg.framesPerYear]);
+  const supported = useMemo(() => isExportSupported(), []);
 
   const inputProps = useMemo(
     () => ({...cfg, palette, barHeight: Math.round(cfg.rowHeight * 0.68)}),
@@ -45,7 +50,7 @@ export default function App() {
         try {
           setFrame(p.getCurrentFrame());
         } catch {
-          /* player 尚未就绪 */
+          /* 尚未就绪 */
         }
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -57,9 +62,42 @@ export default function App() {
   useEffect(() => {
     const p = playerRef.current;
     if (!p) return;
-    if (playing) p.play();
+    if (playing && !busy) p.play();
     else p.pause();
-  }, [playing]);
+  }, [playing, busy]);
+
+  const runExport = async () => {
+    if (busy) return;
+    setBusy(true);
+    setProgress(0);
+    setStatus({kind: 'progress', text: '正在逐帧绘制并编码…'});
+    try {
+      const res = await exportVideo({
+        cfg,
+        palette,
+        onProgress: (p) => setProgress(p),
+      });
+      downloadBlob(res.blob, `gdp-race.${res.ext}`);
+      setStatus({
+        kind: 'done',
+        text: `导出完成 · ${(res.blob.size / 1048576).toFixed(2)} MB · ${res.frames} 帧 · 耗时 ${(
+          res.ms / 1000
+        ).toFixed(1)} 秒`,
+      });
+    } catch (err) {
+      setStatus({kind: 'error', text: `导出失败：${err?.message || err}`});
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // 自动化测试入口：?export=1 打开即导出，结果写入 #export-status
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('export')) return;
+    const t = setTimeout(runExport, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const set = (key) => (e) => {
     const raw = e.target.value;
@@ -78,11 +116,7 @@ export default function App() {
   const downloadTemplate = () => {
     const tpl = {name: 'gdp-race', config: cfg, palette};
     const blob = new Blob([JSON.stringify(tpl, null, 2)], {type: 'application/json'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'gdp-race.template.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadBlob(blob, 'gdp-race.template.json');
   };
 
   return (
@@ -132,7 +166,7 @@ export default function App() {
             </code>
           </div>
 
-          <p className="hint">浏览器内实时预览，不消耗渲染时间。定稿后可在本地导出 MP4。</p>
+          <p className="hint">浏览器内实时预览。导出时逐帧绘制到 Canvas，由 WebCodecs 直接编码成 MP4。</p>
         </section>
 
         <aside className="panel">
@@ -205,7 +239,22 @@ export default function App() {
             ))}
           </div>
 
-          <button className="primary" onClick={downloadTemplate}>
+          <button className="primary" onClick={runExport} disabled={busy || !supported}>
+            {busy ? `导出中 ${Math.round(progress * 100)}%` : '导出 MP4'}
+          </button>
+
+          {busy && (
+            <div className="progress">
+              <div style={{width: `${progress * 100}%`}} />
+            </div>
+          )}
+
+          <p id="export-status" className={`status ${status.kind}`}>
+            {status.text ||
+              (supported ? '导出在本地完成，不上传任何数据' : '当前浏览器不支持 WebCodecs，请用 Chrome / Edge')}
+          </p>
+
+          <button className="ghost" onClick={downloadTemplate}>
             下载模板 JSON
           </button>
           <p className="note">
@@ -215,7 +264,7 @@ export default function App() {
       </main>
 
       <footer className="foot">
-        数据：世界银行 NY.GDP.MKTP.CD（现价美元）· 预览由 Remotion Player 驱动 · 导出在本地完成
+        数据：世界银行 NY.GDP.MKTP.CD（现价美元）· 预览 Remotion Player · 导出 WebCodecs
       </footer>
     </div>
   );
