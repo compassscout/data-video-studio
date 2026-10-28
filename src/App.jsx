@@ -1,22 +1,11 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+﻿import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {Player} from '@remotion/player';
-import {GdpRace, buildDuration} from './GdpRace.jsx';
+import {GdpRace} from './GdpRace.jsx';
+import {buildDuration} from './model.js';
+import {layoutFor, ASPECTS} from './layout.js';
+import {DEFAULT_DATASET, parseCsv, summarize} from './dataset.js';
+import {TEMPLATES, findTemplate} from './templates.js';
 import {exportVideo, downloadBlob, isExportSupported} from './export.js';
-
-const PRESETS = {
-  默认: {},
-  中国红: {'中国': '#e23b2e', '美国': '#3b6fd4', '日本': '#c9922e'},
-  商务蓝: {'美国': '#2563eb', '中国': '#0ea5e9', '日本': '#6366f1', '德国': '#14b8a6'},
-};
-
-const DEFAULTS = {
-  kicker: '世界银行 · 现价美元',
-  title: 'GDP 排行 2000–2024',
-  footer: '数据来源：世界银行 NY.GDP.MKTP.CD · 单位：万亿美元',
-  accent: '#5ea8ff',
-  rowHeight: 56,
-  framesPerYear: 12,
-};
 
 const fmt = (f, fps) => {
   const s = f / fps;
@@ -24,23 +13,29 @@ const fmt = (f, fps) => {
 };
 
 export default function App() {
-  const [cfg, setCfg] = useState(DEFAULTS);
-  const [preset, setPreset] = useState('默认');
-  const [palette, setPalette] = useState(PRESETS['默认']);
+  const [dataset, setDataset] = useState(DEFAULT_DATASET);
+  const [aspect, setAspect] = useState('16:9');
+  const [templateId, setTemplateId] = useState('classic');
+  const [cfg, setCfg] = useState(() => ({...findTemplate('classic').config}));
+  const [palette, setPalette] = useState(() => ({...findTemplate('classic').palette}));
   const [playing, setPlaying] = useState(true);
   const [frame, setFrame] = useState(0);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState({kind: 'idle', text: ''});
+  const [dataNote, setDataNote] = useState({kind: 'idle', text: ''});
   const playerRef = useRef(null);
   const rafRef = useRef(0);
+  const fileRef = useRef(null);
 
-  const duration = useMemo(() => buildDuration(cfg.framesPerYear, 28), [cfg.framesPerYear]);
+  const layout = useMemo(() => layoutFor(aspect, cfg.visible), [aspect, cfg.visible]);
+  const duration = useMemo(() => buildDuration(dataset, cfg.framesPerYear, 28), [dataset, cfg.framesPerYear]);
   const supported = useMemo(() => isExportSupported(), []);
+  const info = useMemo(() => summarize(dataset), [dataset]);
 
   const inputProps = useMemo(
-    () => ({...cfg, palette, barHeight: Math.round(cfg.rowHeight * 0.68)}),
-    [cfg, palette]
+    () => ({dataset, aspect, palette, ...cfg}),
+    [dataset, aspect, palette, cfg]
   );
 
   useEffect(() => {
@@ -66,21 +61,44 @@ export default function App() {
     else p.pause();
   }, [playing, busy]);
 
+  const applyTemplate = (id) => {
+    const t = findTemplate(id);
+    setTemplateId(id);
+    setCfg((c) => ({...c, ...t.config}));
+    setPalette({...t.palette});
+  };
+
+  const onCsv = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseCsv(text);
+      setDataset({...parsed, fileName: file.name});
+      setDataNote({kind: 'done', text: `已载入 ${file.name}`});
+    } catch (err) {
+      setDataNote({kind: 'error', text: `解析失败：${err.message}`});
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const resetData = () => {
+    setDataset(DEFAULT_DATASET);
+    setDataNote({kind: 'idle', text: '已恢复内置数据'});
+  };
+
   const runExport = async () => {
     if (busy) return;
     setBusy(true);
     setProgress(0);
     setStatus({kind: 'progress', text: '正在逐帧绘制并编码…'});
     try {
-      const res = await exportVideo({
-        cfg,
-        palette,
-        onProgress: (p) => setProgress(p),
-      });
-      downloadBlob(res.blob, `gdp-race.${res.ext}`);
+      const res = await exportVideo({cfg, dataset, aspect, palette, onProgress: setProgress});
+      downloadBlob(res.blob, `data-video-${aspect.replace(':', 'x')}.${res.ext}`);
       setStatus({
         kind: 'done',
-        text: `导出完成 · ${(res.blob.size / 1048576).toFixed(2)} MB · ${res.frames} 帧 · 耗时 ${(
+        text: `导出完成 · ${(res.blob.size / 1048576).toFixed(2)} MB · ${res.frames} 帧 · ${(
           res.ms / 1000
         ).toFixed(1)} 秒`,
       });
@@ -91,7 +109,6 @@ export default function App() {
     }
   };
 
-  // 自动化测试入口：?export=1 打开即导出，结果写入 #export-status
   useEffect(() => {
     if (!new URLSearchParams(window.location.search).has('export')) return;
     const t = setTimeout(runExport, 600);
@@ -102,7 +119,7 @@ export default function App() {
   const set = (key) => (e) => {
     const raw = e.target.value;
     const num = Number(raw);
-    setCfg((c) => ({...c, [key]: key === 'rowHeight' || key === 'framesPerYear' ? num : raw}));
+    setCfg((c) => ({...c, [key]: key === 'visible' || key === 'framesPerYear' ? num : raw}));
   };
 
   const seek = (e) => {
@@ -114,9 +131,9 @@ export default function App() {
   };
 
   const downloadTemplate = () => {
-    const tpl = {name: 'gdp-race', config: cfg, palette};
+    const tpl = {name: templateId, aspect, config: cfg, palette};
     const blob = new Blob([JSON.stringify(tpl, null, 2)], {type: 'application/json'});
-    downloadBlob(blob, 'gdp-race.template.json');
+    downloadBlob(blob, `${templateId}.template.json`);
   };
 
   return (
@@ -127,21 +144,28 @@ export default function App() {
           数据视频工作室
           <span className="tag">beta</span>
         </div>
-        <div className="meta">模板 · GDP 排行 2000–2024 · 12 个经济体</div>
+        <div className="meta">
+          {dataset.fileName || '内置数据'} · {info.count} 个对象 · {info.from}–{info.to}
+        </div>
       </header>
 
       <main className="layout">
         <section className="stage">
-          <div className="player-wrap">
+          <div className="player-wrap" style={{display: 'flex', justifyContent: 'center', background: '#000'}}>
             <Player
               ref={playerRef}
               component={GdpRace}
               inputProps={inputProps}
               durationInFrames={duration}
               fps={30}
-              compositionWidth={1280}
-              compositionHeight={720}
-              style={{width: '100%', aspectRatio: '16 / 9', display: 'block'}}
+              compositionWidth={layout.width}
+              compositionHeight={layout.height}
+              style={{
+                width: '100%',
+                maxHeight: '58vh',
+                aspectRatio: `${layout.width} / ${layout.height}`,
+                display: 'block',
+              }}
               controls={false}
               loop
               clickToPlay={false}
@@ -166,12 +190,56 @@ export default function App() {
             </code>
           </div>
 
-          <p className="hint">浏览器内实时预览。导出时逐帧绘制到 Canvas，由 WebCodecs 直接编码成 MP4。</p>
+          <p className="hint">
+            {layout.width}×{layout.height} · {duration} 帧 · 导出由 WebCodecs 在本地完成
+          </p>
         </section>
 
         <aside className="panel">
-          <h2>模板参数</h2>
+          <h2>模板</h2>
+          <div className="chips">
+            {TEMPLATES.map((t) => (
+              <button
+                key={t.id}
+                className={templateId === t.id ? 'chip active' : 'chip'}
+                onClick={() => applyTemplate(t.id)}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
 
+          <h2>画幅</h2>
+          <div className="chips">
+            {Object.entries(ASPECTS).map(([k, v]) => (
+              <button
+                key={k}
+                className={aspect === k ? 'chip active' : 'chip'}
+                onClick={() => { setAspect(k); setCfg((c) => ({...c, visible: ASPECTS[k].visible})); }}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          <h2>数据</h2>
+          <div className="row">
+            <button className="ghost" onClick={() => fileRef.current?.click()}>
+              导入 CSV
+            </button>
+            <button className="ghost" onClick={resetData}>
+              恢复默认
+            </button>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv,.tsv,.txt" onChange={onCsv} hidden />
+          <p className={`status ${dataNote.kind}`}>
+            {dataNote.text || `格式：第一行年份，第一列名称。共 ${info.count} 行 × ${info.span} 年`}
+          </p>
+          <a className="link" href="sample-data.csv" download>
+            下载示例 CSV
+          </a>
+
+          <h2>文字</h2>
           <label>
             眉标
             <input value={cfg.kicker} onChange={set('kicker')} />
@@ -185,6 +253,7 @@ export default function App() {
             <input value={cfg.footer} onChange={set('footer')} />
           </label>
 
+          <h2>样式</h2>
           <label>
             主色
             <span className="row">
@@ -192,7 +261,6 @@ export default function App() {
               <code>{cfg.accent}</code>
             </span>
           </label>
-
           <label>
             动画速度
             <span className="row">
@@ -207,48 +275,22 @@ export default function App() {
               <code>{cfg.framesPerYear} 帧/年</code>
             </span>
           </label>
-
           <label>
-            行高
+            显示条数
             <span className="row">
-              <input
-                type="range"
-                min="40"
-                max="76"
-                step="2"
-                value={cfg.rowHeight}
-                onChange={set('rowHeight')}
-              />
-              <code>{cfg.rowHeight}px</code>
+              <input type="range" min="5" max="12" step="1" value={cfg.visible} onChange={set('visible')} />
+              <code>{cfg.visible} 条</code>
             </span>
           </label>
-
-          <div className="presets">
-            <span>配色方案</span>
-            {Object.keys(PRESETS).map((k) => (
-              <button
-                key={k}
-                className={preset === k ? 'chip active' : 'chip'}
-                onClick={() => {
-                  setPreset(k);
-                  setPalette(PRESETS[k]);
-                }}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
 
           <button className="primary" onClick={runExport} disabled={busy || !supported}>
             {busy ? `导出中 ${Math.round(progress * 100)}%` : '导出 MP4'}
           </button>
-
           {busy && (
             <div className="progress">
               <div style={{width: `${progress * 100}%`}} />
             </div>
           )}
-
           <p id="export-status" className={`status ${status.kind}`}>
             {status.text ||
               (supported ? '导出在本地完成，不上传任何数据' : '当前浏览器不支持 WebCodecs，请用 Chrome / Edge')}
@@ -257,14 +299,11 @@ export default function App() {
           <button className="ghost" onClick={downloadTemplate}>
             下载模板 JSON
           </button>
-          <p className="note">
-            时长 {(duration / 30).toFixed(1)} 秒 · {duration} 帧 · 1280×720 · 30fps
-          </p>
         </aside>
       </main>
 
       <footer className="foot">
-        数据：世界银行 NY.GDP.MKTP.CD（现价美元）· 预览 Remotion Player · 导出 WebCodecs
+        数据：{dataset.source || '自定义'} · 预览 Remotion Player · 导出 WebCodecs
       </footer>
     </div>
   );

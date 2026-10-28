@@ -1,5 +1,3 @@
-import {LAYOUT} from './model.js';
-
 const FONT = '"Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif';
 
 const font = (weight, size) => `${weight} ${size}px ${FONT}`;
@@ -15,27 +13,27 @@ const roundRect = (ctx, x, y, w, h, r) => {
   ctx.closePath();
 };
 
-const setSpacing = (ctx, value) => {
+const spacing = (ctx, value) => {
   try {
     ctx.letterSpacing = value;
   } catch {
-    /* 老浏览器忽略即可 */
+    /* 旧浏览器忽略 */
   }
 };
 
 /**
- * 把某一帧画到 canvas 上。布局常量与 DOM 版保持一致。
+ * 把某一帧画到 canvas 上，布局由 layoutFor(aspect) 推导，与 DOM 版共用同一套数值。
  */
-export const drawFrame = (ctx, st, cfg, palette = {}) => {
-  const {width: W, height: H, barX, barMaxWidth, top, visible, labelX, labelWidth} = LAYOUT;
-  const rowHeight = cfg.rowHeight ?? 56;
-  const barHeight = Math.round(rowHeight * 0.68);
+export const drawFrame = (ctx, st, cfg, layout, dataset, palette = {}) => {
+  const {width: W, height: H, padX, top, visible, rowHeight, barHeight, barX, barMaxWidth, labelWidth, fs} =
+    layout;
+
   const accent = cfg.accent || '#5ea8ff';
+  const unit = dataset.unit || '';
 
   ctx.save();
   ctx.clearRect(0, 0, W, H);
 
-  // 背景
   const bg = ctx.createRadialGradient(W * 0.15, 0, 0, W * 0.15, 0, Math.max(W, H) * 1.25);
   bg.addColorStop(0, '#16233c');
   bg.addColorStop(0.45, '#0b1220');
@@ -43,8 +41,7 @@ export const drawFrame = (ctx, st, cfg, palette = {}) => {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // 右上角光晕
-  const glow = ctx.createRadialGradient(1150, 90, 0, 1150, 90, 430);
+  const glow = ctx.createRadialGradient(W * 0.9, H * 0.12, 0, W * 0.9, H * 0.12, W * 0.34);
   glow.addColorStop(0, 'rgba(56,132,255,0.18)');
   glow.addColorStop(1, 'rgba(56,132,255,0)');
   ctx.fillStyle = glow;
@@ -54,34 +51,34 @@ export const drawFrame = (ctx, st, cfg, palette = {}) => {
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
   ctx.fillStyle = accent;
-  ctx.font = font(600, 18);
-  setSpacing(ctx, '6px');
-  ctx.fillText(cfg.kicker || '', 52, 42);
-  setSpacing(ctx, '0px');
+  ctx.font = font(600, fs.kicker);
+  spacing(ctx, `${Math.round(fs.kicker * 0.33)}px`);
+  ctx.fillText(cfg.kicker || '', padX, Math.round(H * 0.058));
+  spacing(ctx, '0px');
 
   // 标题
   ctx.fillStyle = '#e8eefc';
-  ctx.font = font(700, 40);
-  ctx.fillText(cfg.title || '', 52, 72);
+  ctx.font = font(700, fs.title);
+  ctx.fillText(cfg.title || '', padX, Math.round(H * 0.1));
 
   // 年份
   ctx.textAlign = 'right';
   ctx.fillStyle = '#ffffff';
-  ctx.font = font(800, 108);
-  ctx.shadowColor = 'rgba(94,168,255,0.45)';
-  ctx.shadowBlur = 50;
-  ctx.fillText(st.yearLabel, W - 52, 26);
+  ctx.font = font(800, fs.year);
+  ctx.shadowColor = `${accent}80`;
+  ctx.shadowBlur = Math.round(fs.year * 0.45);
+  ctx.fillText(st.yearLabel, W - padX, Math.round(H * 0.036));
   ctx.shadowBlur = 0;
   ctx.shadowColor = 'transparent';
 
-  // 纵轴基线
-  const axisGrad = ctx.createLinearGradient(0, top - 6, 0, top + visible * rowHeight);
-  axisGrad.addColorStop(0, `${accent}73`);
-  axisGrad.addColorStop(1, `${accent}0a`);
-  ctx.fillStyle = axisGrad;
+  // 纵轴
+  const axis = ctx.createLinearGradient(0, top - 6, 0, top + visible * rowHeight);
+  axis.addColorStop(0, `${accent}73`);
+  axis.addColorStop(1, `${accent}0a`);
+  ctx.fillStyle = axis;
   ctx.fillRect(barX - 14, top - 6, 2, visible * rowHeight);
 
-  // 条形区（裁切 + 底部渐隐）
+  // 条形区
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, top, W, visible * rowHeight);
@@ -98,41 +95,42 @@ export const drawFrame = (ctx, st, cfg, palette = {}) => {
 
     ctx.globalAlpha = fade;
 
-    // 国家名
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#dbe6fb';
-    ctx.font = font(600, 24);
-    ctx.fillText(c.name, labelX + labelWidth, y + barHeight / 2);
+    ctx.font = font(600, fs.label);
+    ctx.fillText(c.name, padX + labelWidth, y + barHeight / 2);
 
-    // 条形
-    const barGrad = ctx.createLinearGradient(barX, 0, barX + barWidth, 0);
-    barGrad.addColorStop(0, `${color}f0`);
-    barGrad.addColorStop(1, `${color}88`);
-    ctx.fillStyle = barGrad;
+    const grad = ctx.createLinearGradient(barX, 0, barX + barWidth, 0);
+    grad.addColorStop(0, `${color}f0`);
+    grad.addColorStop(1, `${color}88`);
+    ctx.fillStyle = grad;
     roundRect(ctx, barX, y, barWidth, barHeight, 6);
     ctx.fill();
 
-    // 数值
     ctx.textAlign = 'left';
     ctx.fillStyle = '#f2f6ff';
-    ctx.font = font(700, 23);
+    ctx.font = font(700, fs.value);
     const valText = c.v.toFixed(2);
     ctx.fillText(valText, barX + barWidth + 12, y + barHeight / 2);
-    const valWidth = ctx.measureText(valText).width;
-    ctx.fillStyle = '#8ea6cc';
-    ctx.font = font(500, 15);
-    ctx.fillText('万亿', barX + barWidth + 12 + valWidth + 5, y + barHeight / 2);
+
+    if (unit) {
+      const valWidth = ctx.measureText(valText).width;
+      ctx.fillStyle = '#8ea6cc';
+      ctx.font = font(500, fs.unit);
+      ctx.fillText(unit, barX + barWidth + 12 + valWidth + 5, y + barHeight / 2);
+    }
 
     ctx.globalAlpha = 1;
   }
 
-  // 底部柔和渐隐
-  const mask = ctx.createLinearGradient(0, top + visible * rowHeight * 0.88, 0, top + visible * rowHeight);
+  // 底部渐隐
+  const maskTop = top + visible * rowHeight * 0.9;
+  const mask = ctx.createLinearGradient(0, maskTop, 0, top + visible * rowHeight);
   mask.addColorStop(0, 'rgba(7,11,20,0)');
   mask.addColorStop(1, 'rgba(7,11,20,0.95)');
   ctx.fillStyle = mask;
-  ctx.fillRect(0, top + visible * rowHeight * 0.88, W, visible * rowHeight * 0.12);
+  ctx.fillRect(0, maskTop, W, top + visible * rowHeight - maskTop);
 
   ctx.restore();
 
@@ -140,16 +138,12 @@ export const drawFrame = (ctx, st, cfg, palette = {}) => {
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.fillStyle = '#5c7392';
-  ctx.font = font(400, 15);
-  setSpacing(ctx, '1px');
-  ctx.fillText(cfg.footer || '', 52, H - 24);
-  setSpacing(ctx, '0px');
-
+  ctx.font = font(400, fs.footer);
+  ctx.fillText(cfg.footer || '', padX, H - Math.round(H * 0.033));
   ctx.textAlign = 'right';
   ctx.fillStyle = '#3f5470';
-  ctx.fillText('Data Video Studio', W - 52, H - 24);
+  ctx.fillText('Data Video Studio', W - padX, H - Math.round(H * 0.033));
 
-  // 进度线
   const pg = ctx.createLinearGradient(0, 0, W, 0);
   pg.addColorStop(0, accent);
   pg.addColorStop(1, '#818cf8');

@@ -1,4 +1,4 @@
-﻿import {
+import {
   Output,
   Mp4OutputFormat,
   WebMOutputFormat,
@@ -6,7 +6,8 @@
   CanvasSource,
   Quality,
 } from 'mediabunny';
-import {buildFrames, FPS, LAYOUT} from './model.js';
+import {buildFrames, FPS} from './model.js';
+import {layoutFor} from './layout.js';
 import {drawFrame} from './render.js';
 
 export const isExportSupported = () =>
@@ -19,22 +20,20 @@ const CANDIDATES = [
 
 /**
  * 在浏览器里逐帧绘制 → WebCodecs 编码 → 封装成 MP4。
- * 不经过服务端，也不启动无头浏览器，通常 10 秒视频在 10 秒内完成。
  */
-export const exportVideo = async ({cfg, palette, onProgress}) => {
+export const exportVideo = async ({cfg, dataset, aspect, palette, onProgress}) => {
   if (!isExportSupported()) {
     throw new Error('当前浏览器不支持 WebCodecs，请用 Chrome / Edge 打开');
   }
+  if (document.fonts?.ready) await document.fonts.ready;
 
-  if (document.fonts?.ready) {
-    await document.fonts.ready;
-  }
+  const layout = layoutFor(aspect, cfg.visible);
+  const frames = buildFrames(dataset, cfg.framesPerYear, cfg.holdFrames ?? 28);
 
-  const frames = buildFrames(cfg.framesPerYear, 28);
   const canvas = document.createElement('canvas');
-  canvas.width = LAYOUT.width;
-  canvas.height = LAYOUT.height;
-  const ctx = canvas.getContext('2d', {willReadFrequently: false});
+  canvas.width = layout.width;
+  canvas.height = layout.height;
+  const ctx = canvas.getContext('2d');
 
   const started = performance.now();
   let lastError = null;
@@ -62,7 +61,7 @@ export const exportVideo = async ({cfg, palette, onProgress}) => {
     }
 
     for (let f = 0; f < frames.length; f++) {
-      drawFrame(ctx, frames[f], cfg, palette);
+      drawFrame(ctx, frames[f], cfg, layout, dataset, palette);
       await source.add(f / FPS, 1 / FPS);
       if (onProgress) onProgress((f + 1) / frames.length);
     }

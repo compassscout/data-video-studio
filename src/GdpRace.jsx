@@ -1,28 +1,34 @@
 import React, {useMemo} from 'react';
 import {AbsoluteFill, useCurrentFrame, useVideoConfig} from 'remotion';
-import {COUNTRIES, LAYOUT, buildFrames, buildDuration} from './model.js';
+import {buildFrames} from './model.js';
+import {layoutFor} from './layout.js';
 
 const FONT = '"Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif';
 
-export {buildDuration};
-
 export const GdpRace = ({
+  dataset,
+  aspect = '16:9',
+  visible,
   kicker = '世界银行 · 现价美元',
   title = 'GDP 排行 2000–2024',
-  footer = '数据来源：世界银行 NY.GDP.MKTP.CD · 单位：万亿美元',
+  footer = '',
   accent = '#5ea8ff',
-  rowHeight = 56,
-  barHeight = Math.round(rowHeight * 0.68),
   framesPerYear = 12,
   holdFrames = 28,
   palette = {},
 }) => {
   const frame = useCurrentFrame();
   const {durationInFrames} = useVideoConfig();
-  const {barX, barMaxWidth, top, visible, labelX, labelWidth} = LAYOUT;
 
-  const frames = useMemo(() => buildFrames(framesPerYear, holdFrames), [framesPerYear, holdFrames]);
+  const layout = useMemo(() => layoutFor(aspect, visible), [aspect, visible]);
+  const frames = useMemo(
+    () => buildFrames(dataset, framesPerYear, holdFrames),
+    [dataset, framesPerYear, holdFrames]
+  );
   const st = frames[Math.min(frame, frames.length - 1)];
+
+  const {width: W, height: H, padX, top, rowHeight, barHeight, barX, barMaxWidth, labelWidth, fs} = layout;
+  const unit = dataset.unit || '';
 
   return (
     <AbsoluteFill
@@ -35,19 +41,29 @@ export const GdpRace = ({
       <div
         style={{
           position: 'absolute',
-          right: -180,
-          top: -220,
-          width: 620,
-          height: 620,
+          right: -W * 0.14,
+          top: -H * 0.3,
+          width: W * 0.48,
+          height: W * 0.48,
           borderRadius: '50%',
           background: 'rgba(56,132,255,0.18)',
-          filter: 'blur(120px)',
+          filter: `blur(${Math.round(W * 0.09)}px)`,
         }}
       />
 
-      <div style={{position: 'absolute', left: 52, top: 40}}>
-        <div style={{color: accent, fontSize: 18, letterSpacing: 6, fontWeight: 600}}>{kicker}</div>
-        <div style={{color: '#e8eefc', fontSize: 40, fontWeight: 700, marginTop: 8, letterSpacing: 1}}>
+      <div style={{position: 'absolute', left: padX, top: H * 0.055}}>
+        <div style={{color: accent, fontSize: fs.kicker, letterSpacing: fs.kicker * 0.33, fontWeight: 600}}>
+          {kicker}
+        </div>
+        <div
+          style={{
+            color: '#e8eefc',
+            fontSize: fs.title,
+            fontWeight: 700,
+            marginTop: Math.round(H * 0.011),
+            letterSpacing: 1,
+          }}
+        >
           {title}
         </div>
       </div>
@@ -55,14 +71,14 @@ export const GdpRace = ({
       <div
         style={{
           position: 'absolute',
-          right: 52,
-          top: 22,
+          right: padX,
+          top: H * 0.03,
           color: '#ffffff',
-          fontSize: 108,
+          fontSize: fs.year,
           fontWeight: 800,
           letterSpacing: -3,
           fontVariantNumeric: 'tabular-nums',
-          textShadow: `0 0 50px ${accent}66`,
+          textShadow: `0 0 ${Math.round(fs.year * 0.45)}px ${accent}66`,
         }}
       >
         {st.yearLabel}
@@ -74,7 +90,7 @@ export const GdpRace = ({
           left: barX - 14,
           top: top - 6,
           width: 2,
-          height: visible * rowHeight,
+          height: layout.visible * rowHeight,
           background: `linear-gradient(180deg, ${accent}73, ${accent}0a)`,
         }}
       />
@@ -85,18 +101,18 @@ export const GdpRace = ({
           left: 0,
           top,
           width: '100%',
-          height: visible * rowHeight,
+          height: layout.visible * rowHeight,
           overflow: 'hidden',
-          maskImage: 'linear-gradient(180deg, black 0%, black 92%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(180deg, black 0%, black 92%, transparent 100%)',
+          maskImage: 'linear-gradient(180deg, black 0%, black 90%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(180deg, black 0%, black 90%, transparent 100%)',
         }}
       >
-        {COUNTRIES.map((c) => {
+        {dataset.countries.map((c) => {
           const row = st.rows[c.code];
           const y = row * rowHeight;
           const val = st.vals.find((v) => v.code === c.code).v;
           const barWidth = Math.max(8, (val / st.maxV) * barMaxWidth);
-          const fade = Math.min(1, Math.max(0, visible + 0.3 - row));
+          const fade = Math.min(1, Math.max(0, layout.visible + 0.3 - row));
           if (fade <= 0.001) return null;
           const color = palette[c.name] || c.color;
           return (
@@ -104,12 +120,12 @@ export const GdpRace = ({
               <div
                 style={{
                   position: 'absolute',
-                  left: labelX,
+                  left: padX,
                   top: 0,
                   width: labelWidth,
                   textAlign: 'right',
                   color: '#dbe6fb',
-                  fontSize: 24,
+                  fontSize: fs.label,
                   fontWeight: 600,
                   lineHeight: `${barHeight}px`,
                   whiteSpace: 'nowrap',
@@ -135,7 +151,7 @@ export const GdpRace = ({
                   left: barX + barWidth + 12,
                   top: 0,
                   color: '#f2f6ff',
-                  fontSize: 23,
+                  fontSize: fs.value,
                   fontWeight: 700,
                   lineHeight: `${barHeight}px`,
                   fontVariantNumeric: 'tabular-nums',
@@ -144,18 +160,36 @@ export const GdpRace = ({
                 }}
               >
                 {val.toFixed(2)}
-                <span style={{fontSize: 15, color: '#8ea6cc', marginLeft: 5, fontWeight: 500}}>万亿</span>
+                {unit && (
+                  <span style={{fontSize: fs.unit, color: '#8ea6cc', marginLeft: 5, fontWeight: 500}}>{unit}</span>
+                )}
               </div>
             </div>
           );
         })}
       </div>
 
-      <div style={{position: 'absolute', left: 52, bottom: 24, color: '#5c7392', fontSize: 15, letterSpacing: 1}}>
+      <div
+        style={{
+          position: 'absolute',
+          left: padX,
+          bottom: H * 0.033,
+          color: '#5c7392',
+          fontSize: fs.footer,
+          letterSpacing: 1,
+        }}
+      >
         {footer}
       </div>
       <div
-        style={{position: 'absolute', right: 52, bottom: 24, color: '#3f5470', fontSize: 15, letterSpacing: 1}}
+        style={{
+          position: 'absolute',
+          right: padX,
+          bottom: H * 0.033,
+          color: '#3f5470',
+          fontSize: fs.footer,
+          letterSpacing: 1,
+        }}
       >
         Data Video Studio
       </div>

@@ -244,3 +244,10 @@ code {
 .ghost:hover { border-color: var(--accent); color: var(--text); }
 
 .primary[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.panel h2 { margin: 10px 0 2px; font-size: 12px; letter-spacing: 2px; color: #4e6079; font-weight: 700; }
+
+.link { color: var(--accent); font-size: 12px; text-decoration: none; }
+.link:hover { text-decoration: underline; }
